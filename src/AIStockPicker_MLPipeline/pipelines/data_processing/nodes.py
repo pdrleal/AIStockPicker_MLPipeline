@@ -3,76 +3,69 @@ from typing import Dict
 
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
-def do_nothing(stocks_table: pd.DataFrame, stock_index) -> pd.DataFrame:
-    stocks_table = stocks_table.loc[stocks_table['stock_index'] == stock_index]
-    logger = logging.getLogger(__name__)
-    logger.info(stock_index)
-    logger.info(stocks_table.head(5))
-    return stocks_table;
 
-# Disabled Nodes
-# def _is_true(x: pd.Series) -> pd.Series:
-#     return x == "t"
-#
-#
-# def _parse_percentage(x: pd.Series) -> pd.Series:
-#     x = x.str.replace("%", "")
-#     x = x.astype(float) / 100
-#     return x
-#
-#
-# def _parse_money(x: pd.Series) -> pd.Series:
-#     x = x.str.replace("$", "").str.replace(",", "")
-#     x = x.astype(float)
-#     return x
-#
-#
-# def preprocess_companies(companies: pd.DataFrame) -> pd.DataFrame:
-#     """Preprocesses the data for companies.
-#
-#     Args:
-#         companies: Raw data.
-#     Returns:
-#         Preprocessed data, with `company_rating` converted to a float and
-#         `iata_approved` converted to boolean.
-#     """
-#     companies["iata_approved"] = _is_true(companies["iata_approved"])
-#     companies["company_rating"] = _parse_percentage(companies["company_rating"])
-#     return companies
-#
-#
-# def preprocess_shuttles(shuttles: pd.DataFrame) -> pd.DataFrame:
-#     """Preprocesses the data for shuttles.
-#
-#     Args:
-#         shuttles: Raw data.
-#     Returns:
-#         Preprocessed data, with `price` converted to a float and `d_check_complete`,
-#         `moon_clearance_complete` converted to boolean.
-#     """
-#     shuttles["d_check_complete"] = _is_true(shuttles["d_check_complete"])
-#     shuttles["moon_clearance_complete"] = _is_true(shuttles["moon_clearance_complete"])
-#     shuttles["price"] = _parse_money(shuttles["price"])
-#     return shuttles
-#
-#
-# def create_model_input_table(
-#         shuttles: pd.DataFrame, companies: pd.DataFrame, reviews: pd.DataFrame
-# ) -> pd.DataFrame:
-#     """Combines all data to create a model input table.
-#
-#     Args:
-#         shuttles: Preprocessed data for shuttles.
-#         companies: Preprocessed data for companies.
-#         reviews: Raw data for reviews.
-#     Returns:
-#         Model input table.
-#
-#     """
-#     rated_shuttles = shuttles.merge(reviews, left_on="id", right_on="shuttle_id")
-#     model_input_table = rated_shuttles.merge(
-#         companies, left_on="company_id", right_on="id"
-#     )
-#     model_input_table = model_input_table.dropna()
-#     return model_input_table
+def filter_stocks_table_by_index(stocks_df: pd.DataFrame, stock_index) -> pd.DataFrame:
+    """
+    Filter and extract data for a specific stock index from Stocks Table.
+
+    Args:
+        stocks_df: A DataFrame containing stock data, including a 'stock_index' column.
+        stock_index: The stock index to filter and extract data for.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing data for the specified stock index.
+
+    Notes:
+        If no data is found for the given 'stock_index', an empty DataFrame is returned.
+    """
+
+    logger.info("Fetching data for stock index: %s", stock_index)
+    stocks_df = stocks_df.loc[stocks_df['stock_index'] == stock_index]
+
+    n_rows = stocks_df.shape[0]
+    if n_rows == 0:
+        logger.info("No data found for stock index: %s", stock_index)
+        return pd.DataFrame()
+
+    min_date = stocks_df['datetime'].min()
+    max_date = stocks_df['datetime'].max()
+    logger.info("There are %s rows raging from %s to %s", str(n_rows), min_date, max_date)
+
+    return stocks_df;
+
+
+def fill_sentiment_missing_values(stock_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Fill missing values in the sentiment columns of filtered_stocks_table.
+
+    Args:
+        stock_df (pd.DataFrame): A DataFrame containing stock data.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing data with no missing values.
+
+    """
+    logger.info("Filling missing values in sentiment columns")
+    stock_df = stock_df.ffill().bfill()
+    return stock_df
+
+
+def compute_simple_moving_averages(stock_df: pd.DataFrame, moving_averages) -> pd.DataFrame:
+    """
+    Create new features from existing data.
+
+    Args:
+        stock_df (pd.DataFrame): A DataFrame containing stock data.
+        moving_averages: A list of moving averages to calculate.
+
+    Returns:
+        pd.DataFrame: A DataFrame containing data with new features
+
+    """
+    logger.info("Engineering new features for stock data")
+    for moving_averages in moving_averages:
+        stock_df[f'SMA{moving_averages}'] = stock_df['close'].rolling(moving_averages).mean()
+
+    return stock_df

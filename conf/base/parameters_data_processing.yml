@@ -1,1 +1,3 @@
-stock_index: None
+stock_index: AAPL
+time_frequency: 1d
+simple_moving_averages: [21,50,100]

@@ -7,30 +7,22 @@ def create_pipeline(**kwargs) -> Pipeline:
     return pipeline(
         [
             node(
-                func=do_nothing,
-                inputs=["stocks_table", "params:stock_index"],
-                outputs="model_input_table",
-                name="do_nothing_node",
+                func=filter_stocks_table_by_index,
+                inputs=["raw_stocks_table", "params:stock_index"],
+                outputs="stock_df",
+                name="filter_stocks_table_by_index",
             ),
-
-            # Disabled Nodes
-            # node(
-            #     func=preprocess_companies,
-            #     inputs="companies",
-            #     outputs="preprocessed_companies",
-            #     name="preprocess_companies_node",
-            # ),
-            # node(
-            #     func=preprocess_shuttles,
-            #     inputs="shuttles",
-            #     outputs="preprocessed_shuttles",
-            #     name="preprocess_shuttles_node",
-            # ),
-            # node(
-            #     func=create_model_input_table,
-            #     inputs=["preprocessed_shuttles", "preprocessed_companies", "reviews"],
-            #     outputs="model_input_table",
-            #     name="create_model_input_table_node",
-            # ),
+            node(
+                func=fill_sentiment_missing_values,
+                inputs=["stock_df"],
+                outputs="preprocess_stock_df",
+                name="fill_sentiment_missing_values",
+            ),
+            node(
+                func=compute_simple_moving_averages,
+                inputs=["preprocess_stock_df", "params:simple_moving_averages"],
+                outputs="preprocess_stock_df_sma",
+                name="compute_simple_moving_averages",
+            ),
         ]
     )
