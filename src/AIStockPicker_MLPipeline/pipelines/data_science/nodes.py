@@ -7,17 +7,17 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
 
 
-def split_data(data: pd.DataFrame, parameters: Dict) -> Tuple:
+def split_data(stock_df: pd.DataFrame, parameters: Dict) -> Tuple:
     """Splits data into features and targets training and test sets.
 
     Args:
-        data: Data containing features and target.
+        stock_df: Data containing features and target.
         parameters: Parameters defined in parameters/data_science.yml.
     Returns:
         Split data.
     """
-    X = data[parameters["features"]]
-    y = data["price"]
+    X = stock_df.drop(["return"], axis=1)
+    y = stock_df["return"]
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=parameters["test_size"], random_state=parameters["random_state"]
     )
@@ -40,7 +40,7 @@ def train_model(X_train: pd.DataFrame, y_train: pd.Series) -> LinearRegression:
 
 
 def evaluate_model(
-    regressor: LinearRegression, X_test: pd.DataFrame, y_test: pd.Series
+        regressor: LinearRegression, X_test: pd.DataFrame, y_test: pd.Series
 ):
     """Calculates and logs the coefficient of determination.
 

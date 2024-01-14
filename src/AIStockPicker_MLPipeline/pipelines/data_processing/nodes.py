@@ -1,9 +1,10 @@
 import logging
-from typing import Dict
 
 import pandas as pd
+import pandas_ta as ta
 
 logger = logging.getLogger(__name__)
+first_date_with_sentiment = None
 
 
 def filter_stocks_table_by_index(stocks_df: pd.DataFrame, stock_index) -> pd.DataFrame:
@@ -21,51 +22,71 @@ def filter_stocks_table_by_index(stocks_df: pd.DataFrame, stock_index) -> pd.Dat
         If no data is found for the given 'stock_index', an empty DataFrame is returned.
     """
 
-    logger.info("Fetching data for stock index: %s", stock_index)
+    logger.info("Fetching data for %s...", stock_index)
+
+    # save minimum date with news_sentiment different from np.nan
+    global first_date_with_sentiment
+    first_date_with_sentiment = stocks_df.loc[stocks_df['news_sentiment'].notnull(), 'datetime'].min()
+
     stocks_df = stocks_df.loc[stocks_df['stock_index'] == stock_index]
-
-    n_rows = stocks_df.shape[0]
-    if n_rows == 0:
-        logger.info("No data found for stock index: %s", stock_index)
+    if stocks_df.shape[0] == 0:
+        logger.info("No data found for %s.", stock_index)
         return pd.DataFrame()
-
-    min_date = stocks_df['datetime'].min()
-    max_date = stocks_df['datetime'].max()
-    logger.info("There are %s rows raging from %s to %s", str(n_rows), min_date, max_date)
 
     return stocks_df;
 
 
-def fill_sentiment_missing_values(stock_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Fill missing values in the sentiment columns of filtered_stocks_table.
+def compute_percentage_returns(stock_df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("Computing percentage returns...")
+    stock_df['return'] = stock_df['close'].pct_change()
 
-    Args:
-        stock_df (pd.DataFrame): A DataFrame containing stock data.
-
-    Returns:
-        pd.DataFrame: A DataFrame containing data with no missing values.
-
-    """
-    logger.info("Filling missing values in sentiment columns")
-    stock_df = stock_df.ffill().bfill()
     return stock_df
 
 
-def compute_simple_moving_averages(stock_df: pd.DataFrame, moving_averages) -> pd.DataFrame:
-    """
-    Create new features from existing data.
+def compute_simple_moving_averages(stock_df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("Computing simple moving averages...")
+    # https://www.elearnmarkets.com/school/units/swing-trading/moving-average-strategy
+    stock_df['sma21'] = ta.sma(stock_df['close'], 21)
+    stock_df['sma50'] = ta.sma(stock_df['close'], 50)
+    stock_df['sma100'] = ta.sma(stock_df['close'], 100)
+    # Golden Cross-over can be achieved when SMA21 crosses SMA50 from below
+    stock_df['bullish_sma'] = (stock_df['sma21'] > stock_df['sma50']).astype(int)
+    # Death Cross-over can be achieved when SMA21 crosses SMA50 from above
+    stock_df['bearish_sma'] = (stock_df['sma21'] < stock_df['sma50']).astype(int)
 
-    Args:
-        stock_df (pd.DataFrame): A DataFrame containing stock data.
-        moving_averages: A list of moving averages to calculate.
+    return stock_df[['sma21', 'sma50', 'sma100', 'bullish_sma']]
 
-    Returns:
-        pd.DataFrame: A DataFrame containing data with new features
 
-    """
-    logger.info("Engineering new features for stock data")
-    for moving_averages in moving_averages:
-        stock_df[f'SMA{moving_averages}'] = stock_df['close'].rolling(moving_averages).mean()
+def compute_relative_strength_indexes(stock_df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("Computing relative strength index...")
+    # https://admiralmarkets.com/education/articles/forex-indicators/relative-strength-index-how-to-trade-with-an-rsi-indicator
+    stock_df['rsi'] = ta.rsi(stock_df['close'], 14)
+    stock_df['rsi_overbought'] = (stock_df['rsi'] > 70).astype(int)
+    stock_df['rsi_oversold'] = (stock_df['rsi'] < 30).astype(int)
 
+    return stock_df[['rsi', 'rsi_overbought', 'rsi_oversold']]
+
+
+def merge_dataframes(*df_list) -> pd.DataFrame:
+    logger.info("Merging dataframes...")
+    stock_df = pd.concat(df_list, axis=1)
+    return stock_df
+
+
+def treat_missing_values(stock_df: pd.DataFrame) -> pd.DataFrame:
+    logger.info("Limiting timeframe from the first news forward...")
+    stock_df = stock_df.loc[stock_df['datetime'] >= first_date_with_sentiment]
+    logger.info("Propagating sentiment values forward...")
+    stock_df = stock_df.ffill().bfill()
+
+    return stock_df
+
+
+def perform_feature_selection(stock_df) -> pd.DataFrame:
+    logger.info("Selecting automatically best features...")
+    return stock_df[['return', 'news_sentiment', 'bullish_sma']]
+
+
+def scale_data(stock_df) -> pd.DataFrame:
+    logger.info("Scaling numerical features...")
     return stock_df

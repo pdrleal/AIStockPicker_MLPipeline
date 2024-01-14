@@ -8,7 +8,7 @@ def create_pipeline(**kwargs) -> Pipeline:
         [
             node(
                 func=split_data,
-                inputs=["preprocess_stock_df_sma", "params:model_options"],
+                inputs=["model_input_table", "params:model_options"],
                 outputs=["X_train", "X_test", "y_train", "y_test"],
                 name="split_data_node",
             ),
@@ -16,7 +16,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                 func=train_model,
                 inputs=["X_train", "y_train"],
                 outputs="regressor",
-                name="train_model_node",
+                name="train_model",
             ),
             node(
                 func=evaluate_model,
