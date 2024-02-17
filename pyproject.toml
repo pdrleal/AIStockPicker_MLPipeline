@@ -1,7 +1,7 @@
 [tool.kedro]
 package_name = "AIStockPicker_MLPipeline"
 project_name = "AIStockPicker_MLPipeline"
-kedro_init_version = "0.18.13"
+kedro_init_version = "0.18.14"
 
 [tool.isort]
 profile = "black"

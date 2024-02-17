@@ -29,12 +29,13 @@ def filter_stocks_table_by_index(stocks_df: pd.DataFrame, stock_index) -> pd.Dat
     global first_date_with_sentiment
     first_date_with_sentiment = stocks_df.loc[stocks_df['news_sentiment'].notnull(), 'datetime'].min()
 
-    stocks_df = stocks_df.loc[stocks_df['stock_index'] == stock_index]
-    if stocks_df.shape[0] == 0:
-        logger.info("No data found for %s.", stock_index)
-        return pd.DataFrame()
+    stock_df = stocks_df.loc[stocks_df['stock_index'] == stock_index].copy()
 
-    return stocks_df
+    stock_df['datetime'] = pd.to_datetime(stock_df['datetime'])
+    stock_df = stock_df.sort_values('datetime')
+    stock_df = stock_df.set_index('datetime', drop=True)
+    stock_df = stock_df.drop(columns=['stock_index'])
+    return stock_df
 
 
 def treat_missing_values(stock_df: pd.DataFrame) -> pd.DataFrame:
@@ -151,7 +152,8 @@ def merge_dataframes(*df_list) -> pd.DataFrame:
     logger.info("Merging dataframes...")
     stock_df = pd.concat(df_list, axis=1)
     logger.info("Limiting timeframe from the first news forward...")
-    stock_df = stock_df.loc[stock_df['datetime'] >= first_date_with_sentiment]
+    stock_df = stock_df.loc[stock_df.index >= first_date_with_sentiment]
+    #stock_df.to_csv('notebooks/aapl_df.csv')
     return stock_df
 
 

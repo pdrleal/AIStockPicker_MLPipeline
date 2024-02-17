@@ -1,10 +1,53 @@
 import logging
+import math
 from typing import Dict, Tuple
 
+import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.model_selection import train_test_split
+
+from AIStockPicker_MLPipeline.utils import series_to_supervised
+
+
+def perform_grid_search(stock_df: pd.DataFrame, parameters: Dict) -> Tuple:
+    """Performs grid search to find the best parameters for the model.
+
+    Args:
+        stock_df: Data containing features and target.
+        parameters: Parameters defined in parameters/data_science.yml.
+    Returns:
+        Best parameters.
+    """
+    # Perform grid search to find the best parameters
+    X = stock_df.drop(["return"], axis=1)
+    y = stock_df[["return"]]
+
+    num_rows_validation = int(len(X) * parameters["validation_size"])
+    # do walk forward validation
+    train_size = len(X) - num_rows_validation
+
+    average_rmse = 0
+    for i in range(0, num_rows_validation):
+        X_train = X.iloc[i:train_size + i]
+        y_train = y.iloc[i:train_size + i]
+        X_val = X.iloc[train_size + i:train_size + i + 1]
+        y_val = y.iloc[train_size + i:train_size + i + 1]
+
+        # Train the model
+        regressor = LinearRegression()
+        regressor.fit(X_train, y_train)
+
+        # Evaluate the model
+        y_pred = regressor.predict(X_val)
+        score = np.sqrt(mean_squared_error(y_val, y_pred))
+        average_rmse += score
+        logger = logging.getLogger(__name__)
+
+    average_rmse = average_rmse / num_rows_validation
+    logger.info("Model has a RMSE of %.3f on validation data.", average_rmse)
+    return X_train, X_val, y_train, y_val
 
 
 def split_data(stock_df: pd.DataFrame, parameters: Dict) -> Tuple:
@@ -18,10 +61,11 @@ def split_data(stock_df: pd.DataFrame, parameters: Dict) -> Tuple:
     """
     X = stock_df.drop(["return"], axis=1)
     y = stock_df["return"]
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=parameters["test_size"], random_state=parameters["random_state"]
+
+    X_train, X_val, y_train, y_val = train_test_split(
+        X, y, test_size=parameters["validation_size"], shuffle=False
     )
-    return X_train, X_test, y_train, y_test
+    return X_train, X_val, y_train, y_val
 
 
 def train_model(X_train: pd.DataFrame, y_train: pd.Series) -> LinearRegression:

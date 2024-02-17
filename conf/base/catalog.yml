@@ -54,6 +54,10 @@ raw_stocks_table:
 stock_table:
   type: pandas.ExcelDataSet
   filepath: data/01_raw/stock_table.xlsx
+  load_args:
+    index_col: 0
+  save_args:
+    index: True
   metadata:
     kedro-viz:
       layer: Raw Data
@@ -61,35 +65,51 @@ stock_table:
         nrows: 1000
 
 stock_table_feature_engineering:
-    type: pandas.ExcelDataSet
-    filepath: data/03_features/stock_table_feature_engineering.xlsx
-    metadata:
-      kedro-viz:
-        layer: Feature Engineering
-        preview_args:
-          nrows: 1000
+  type: pandas.ExcelDataSet
+  filepath: data/03_features/stock_table_feature_engineering.xlsx
+  load_args:
+    index_col: 0
+  save_args:
+    index: True
+  metadata:
+    kedro-viz:
+      layer: Feature Engineering
+      preview_args:
+        nrows: 1000
 
 clean_stock_table:
-    type: pandas.ExcelDataSet
-    filepath: data/02_data_cleaning/clean_stock_table.xlsx
-    metadata:
-      kedro-viz:
-        layer: Data Cleaning
-        preview_args:
-          nrows: 1000
+  type: pandas.ExcelDataSet
+  filepath: data/02_data_cleaning/clean_stock_table.xlsx
+  load_args:
+    index_col: 0
+  save_args:
+    index: True
+  metadata:
+    kedro-viz:
+      layer: Data Cleaning
+      preview_args:
+        nrows: 1000
 
 stock_table_feature_selection:
-    type: pandas.ExcelDataSet
-    filepath: data/03_features/stock_table_feature_selection.xlsx
-    metadata:
-      kedro-viz:
-        layer: Feature Selection
-        preview_args:
-          nrows: 1000
+  type: pandas.ExcelDataSet
+  filepath: data/03_features/stock_table_feature_selection.xlsx
+  load_args:
+    index_col: 0
+  save_args:
+    index: True
+  metadata:
+    kedro-viz:
+      layer: Feature Selection
+      preview_args:
+        nrows: 1000
     
 model_input_table:
   type: pandas.ExcelDataSet
   filepath: data/04_model_input/model_input_table.xlsx
+  load_args:
+    index_col: 0
+  save_args:
+    index: True
   metadata:
     kedro-viz:
       layer: Feature Scaling
