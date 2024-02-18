@@ -1,6 +1,7 @@
 # Function to create lag features
 import pandas as pd
 
+# python colors: https://mail.python.org/pipermail/python-list/2009-August/546528.html
 
 def series_to_supervised(data, n_in_start=1, n_in_end=8, n_out=1, dropnan=True, varNames=None):
     """
