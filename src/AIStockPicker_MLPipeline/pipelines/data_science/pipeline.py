@@ -1,28 +1,34 @@
 from kedro.pipeline import Pipeline, node, pipeline
 
-from .nodes import evaluate_model, split_data, train_model, perform_grid_search
+from .nodes import generate_optimized_lagged_features, split_data, perform_grid_search, predict_return
 
 
 def create_pipeline(**kwargs) -> Pipeline:
     return pipeline(
         [
             node(
+                func=generate_optimized_lagged_features,
+                inputs=["stock_table_processed", "sql_variables_table", "params:forecasting"],
+                outputs=["stock_table_with_lagged_features", "best_lags"],
+                name="generate_optimized_lagged_features",
+            ),
+            node(
+                func=split_data,
+                inputs=["stock_table_with_lagged_features", "params:forecasting"],
+                outputs=["X", "y"],
+                name="split_data",
+            ),
+            node(
                 func=perform_grid_search,
-                inputs=["model_input_table", "params:model_options"],
-                outputs=["X_train", "X_val", "y_train", "y_val"],
-                name="split_data_node",
+                inputs=["X", "y", "params:forecasting"],
+                outputs='regressor',
+                name="perform_grid_search",
             ),
             node(
-                func=train_model,
-                inputs=["X_train", "y_train"],
-                outputs="regressor",
-                name="train_model",
-            ),
-            node(
-                func=evaluate_model,
-                inputs=["regressor", "X_val", "y_val"],
-                outputs='score',
-                name="evaluate_model_node",
+                func=predict_return,
+                inputs=["stock_table_processed", "best_lags", "regressor", "sql_variables_table", "params:forecasting"],
+                outputs='prediction',
+                name="predict_return",
             ),
         ]
     )

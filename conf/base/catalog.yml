@@ -43,8 +43,16 @@ raw_stocks_table:
   type: pandas.SQLTableDataSet
   credentials: mysql
   table_name: CLEAN_DATA
-  save_args:
-    if_exists: 'replace'
+  metadata:
+    kedro-viz:
+      layer: Raw Data
+      preview_args:
+        nrows: 1000
+
+sql_variables_table:
+  type: pandas.SQLTableDataSet
+  credentials: mysql
+  table_name: VARIABLES
   metadata:
     kedro-viz:
       layer: Raw Data
@@ -103,9 +111,9 @@ stock_table_feature_selection:
       preview_args:
         nrows: 1000
     
-model_input_table:
+stock_table_processed:
   type: pandas.ExcelDataSet
-  filepath: data/04_model_input/model_input_table.xlsx
+  filepath: data/04_model_input/stock_table_processed.xlsx
   load_args:
     index_col: 0
   save_args:

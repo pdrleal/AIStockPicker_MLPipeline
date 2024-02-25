@@ -95,8 +95,7 @@ def compute_relative_strength_indexes(stock_df: pd.DataFrame) -> pd.DataFrame:
     # https://medium.com/mudrex/rsi-masterclass-part-3-9f9a5dfe3fca
 
     # Testing with RSIs of 14, 28 and 42 days for lower levels of 20,25,30,35,40 and upper leves of 80,75,70,65,60
-    rsi_short_lengths = [5, 8, 11, 14, 17]
-    rsi_long_lengths = [20, 25, 30, 35, 40, 45]
+    rsi_lengths = [5, 8, 11, 14, 17]
     lower_levels = [20, 25, 30, 35, 40, 45]
     upper_levels = [80, 75, 70, 65, 60, 55]
 
@@ -104,62 +103,45 @@ def compute_relative_strength_indexes(stock_df: pd.DataFrame) -> pd.DataFrame:
     best_rsi = (0, 0, 0, 0)
     best_rsi_signals = []
 
-    for rsi_short_length in rsi_short_lengths:
-        for rsi_long_length in rsi_long_lengths:
-            for lower_level, upper_level in zip(lower_levels, upper_levels):
+    for rsi_length in rsi_lengths:
+        for lower_level, upper_level in zip(lower_levels, upper_levels):
 
-                rsi_oversold = (ta.rsi(stock_df['close'], length=rsi_short_length) < lower_level)
-                rsi_overbought = (ta.rsi(stock_df['close'], length=rsi_short_length) > upper_level)
+            rsi_oversold = (ta.rsi(stock_df['close'], length=rsi_length) < lower_level)
+            rsi_signals = pd.Series(index=stock_df.index)
+            rsi_signals.loc[rsi_oversold] = 1
+            rsi_signals.loc[~rsi_oversold] = 0
 
-                rsi_positive_trend = (ta.rsi(stock_df['close'], length=rsi_long_length) > 50)
-                rsi_negative_trend = (ta.rsi(stock_df['close'], length=rsi_long_length) < 50)
-
-                # rsi_signals_buy = (rsi_oversold & rsi_positive_trend)
-                rsi_signals_buy = rsi_oversold
-                # rsi_signals_sell = (rsi_overbought & rsi_negative_trend)
-                rsi_signals_sell = rsi_overbought
-
-                rsi_signals = pd.Series(index=stock_df.index)
-                rsi_signals.loc[rsi_signals_buy] = 1
-                rsi_signals.loc[rsi_signals_sell] = 0
-
-                # Forward fill the signal column
-                rsi_signals = rsi_signals.ffill().bfill().fillna(0)
-
-                rsi_returns = stock_df['return'] * rsi_signals
-                if rsi_returns.std() != 0:
-                    rsi_returns_information_ratio = rsi_returns.mean() / rsi_returns.std()
-                else:
-                    rsi_returns_information_ratio = 0
-                if rsi_returns_information_ratio > best_rsi_returns_information_ratio:
-                    best_rsi_returns_information_ratio = rsi_returns_information_ratio
-                    best_rsi = (rsi_short_length, rsi_long_length, lower_level, upper_level)
-                    best_rsi_signals = rsi_signals
-                logger.info(
-                    "Testing RSI strategy with rsi_short_length=%d, rsi_long_length=%d, lower_level=%d and "
-                    "upper_level=%d. Information ratio: %.2f",
-                    rsi_short_length, rsi_long_length, lower_level, upper_level, rsi_returns_information_ratio)
+            rsi_returns = stock_df['return'] * rsi_signals
+            rsi_returns_information_ratio = rsi_returns.mean() / rsi_returns.std() if rsi_returns.std() != 0 else 0
+            if rsi_returns_information_ratio > best_rsi_returns_information_ratio:
+                best_rsi_returns_information_ratio = rsi_returns_information_ratio
+                best_rsi = (rsi_length, lower_level, upper_level)
+                best_rsi_signals = rsi_signals
+            logger.info(
+                "Testing RSI strategy with rsi_length=%d, lower_level=%d and "
+                "upper_level=%d. Information ratio: %.2f",
+                rsi_length, lower_level, upper_level, rsi_returns_information_ratio)
 
     logger.info(
-        "Best RSI strategy found: rsi_short_length=%d, rsi_long_length=%d, lower_level=%d and upper_level=%d. Information ratio: %.2f",
-        best_rsi[0], best_rsi[1], best_rsi[2], best_rsi[3], best_rsi_returns_information_ratio)
+        "Best RSI strategy found: rsi_length=%d,lower_level=%d and upper_level=%d. Information ratio: %.2f",
+        best_rsi[0], best_rsi[1], best_rsi[2], best_rsi_returns_information_ratio)
     stock_df['rsi_signals'] = best_rsi_signals
 
     return stock_df[['rsi_signals']]
 
 
+# TODO: Try other indicators
 def merge_dataframes(*df_list) -> pd.DataFrame:
     logger.info("Merging dataframes...")
     stock_df = pd.concat(df_list, axis=1)
     logger.info("Limiting timeframe from the first news forward...")
     stock_df = stock_df.loc[stock_df.index >= first_date_with_sentiment]
-    #stock_df.to_csv('notebooks/aapl_df.csv')
+    # stock_df.to_csv('notebooks/aapl_df.csv')
     return stock_df
 
 
 def perform_feature_selection(stock_df) -> pd.DataFrame:
-    logger.info("Selecting automatically best features...")
-    return stock_df
+    return stock_df[['return', 'news_sentiment', 'sma_signals', 'rsi_signals']]
 
 
 def scale_data(stock_df) -> pd.DataFrame:

@@ -52,7 +52,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             node(
                 func=scale_data,
                 inputs=["stock_table_feature_selection"],
-                outputs="model_input_table",
+                outputs="stock_table_processed",
                 name="scale_data"
             ),
 

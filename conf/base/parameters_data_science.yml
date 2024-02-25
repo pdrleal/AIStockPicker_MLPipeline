@@ -1,3 +1,6 @@
-model_options:
-  validation_size: 0.2
+forecasting:
+  target: "return"
+  training_size: 378 # 252 * 1.5
+  validation_size: 63 # 252 / 4
+  max_number_lags: 12
   random_state: 2024
