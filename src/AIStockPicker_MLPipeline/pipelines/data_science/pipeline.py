@@ -21,14 +21,15 @@ def create_pipeline(**kwargs) -> Pipeline:
             node(
                 func=perform_grid_search,
                 inputs=["X", "y", "params:forecasting"],
-                outputs='regressor',
+                outputs=["regressor", "regressor_validation_scores"],
                 name="perform_grid_search",
             ),
             node(
                 func=predict_return,
-                inputs=["stock_table_processed", "best_lags", "regressor", "sql_variables_table", "params:forecasting"],
-                outputs='prediction',
+                inputs=["clean_stock_table", "stock_table_processed", "best_lags", "regressor",
+                        "regressor_validation_scores", "sql_variables_table", "params:forecasting"],
+                outputs='prediction_details',
                 name="predict_return",
-            ),
+            )
         ]
     )

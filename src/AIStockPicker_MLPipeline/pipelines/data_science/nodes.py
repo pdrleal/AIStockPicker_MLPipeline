@@ -6,6 +6,7 @@ from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
+from sklearn.metrics import accuracy_score
 from sklearn.metrics import mean_squared_error
 from sklearn.svm import SVR
 from statsmodels.tsa import ar_model
@@ -98,7 +99,9 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
 
         best_regressor: SVR
         best_rmse = math.inf
+        best_regressor_returns = []
         for kernel, C, degree, gamma in param_combinations:
+            returns = []
             rmse = []
             for i in range(0, parameters["validation_size"]):
                 val_starting_index = len(X) - parameters["validation_size"] + i
@@ -118,18 +121,23 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
                 rmse_score = np.sqrt(mean_squared_error([y_val], [y_pred]))
                 rmse.append(rmse_score)
 
+                returns.append(y_pred[0])
+
             if np.mean(rmse) < best_rmse:
                 best_rmse = np.mean(rmse)
                 best_regressor = regressor
+                best_regressor_returns = returns
 
-        return best_rmse, best_regressor
+        return best_regressor, best_regressor_returns, best_rmse
 
     def _get_best_linear_regressor(X: pd.DataFrame, y, parameters_model: Dict, parameters: Dict) -> Tuple:
 
         param_combinations = itertools.product(parameters_model["fit_intercept"], parameters_model["positive"])
         best_regressor: LinearRegression
         best_rmse = math.inf
+        best_regressor_returns = []
         for fit_intercept, positive in param_combinations:
+            returns = []
             rmse = []
             for i in range(0, parameters["validation_size"]):
                 val_starting_index = len(X) - parameters["validation_size"] + i
@@ -150,10 +158,14 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
                 rmse_score = np.sqrt(mean_squared_error([y_val], [y_pred]))
                 rmse.append(rmse_score)
 
+                returns.append(y_pred[0])
+
             if np.mean(rmse) < best_rmse:
-                best_rmse = np.mean(rmse)
                 best_regressor = regressor
-        return best_rmse, best_regressor
+                best_rmse = np.mean(rmse)
+                best_regressor_returns = returns
+
+        return best_regressor, best_regressor_returns, best_rmse
 
     def _get_best_lstm_regressor(X: pd.DataFrame, y, parameters_model: Dict, parameters: Dict) -> Tuple:
 
@@ -169,6 +181,7 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
 
     best_score = math.inf
     best_model = None
+    best_model_returns = []
     best_model_name = "None"
     for model in models:
         if model == "linear_regression":
@@ -176,11 +189,12 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
                 "fit_intercept": [True, False],
                 "positive": [False, True]
             }
-            score, model = _get_best_linear_regressor(X, y, parameters_linear_regression, parameters)
+            model, returns, score = _get_best_linear_regressor(X, y, parameters_linear_regression, parameters)
             if score < best_score:
-                best_score = score
                 best_model = model
-                best_model_name = "Linear Regression"
+                best_model_returns = returns
+                best_score = score
+                best_model_name = model.__class__.__name__
         elif model == "svm":
             parameters_svm = {
                 "kernel": ["linear", "poly", "rbf"],
@@ -188,11 +202,12 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
                 "degree": [3, 4, 5],
                 "gamma": ["scale", "auto"]
             }
-            score, model = _get_best_svm_regressor(X, y, parameters_svm, parameters)
+            model, returns, score = _get_best_svm_regressor(X, y, parameters_svm, parameters)
             if score < best_score:
-                best_score = score
                 best_model = model
-                best_model_name = "Support Vector Machine Regressor"
+                best_model_returns = returns
+                best_score = score
+                best_model_name = model.__class__.__name__
         elif model == "lstm":
             parameters_lstm = {
                 "n_hidden": [1, 2, 3],
@@ -201,52 +216,75 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
                 "n_output": [1, 2, 3]
             }
             """ 
-            score, model = __get_best_lstm_regressor(X,y, parameters_lstm, parameters)
+            model, returns, score = __get_best_lstm_regressor(X,y, parameters_lstm, parameters)
             if score < best_score:
-                best_score = score
                 best_model = model
+                best_model_returns = returns
+                best_score = score
                 best_model_name = "Long Short-Term Memory Regressor"
             """
 
+    true_signals = [1 if return_val > 0 else 0 for return_val in y[-parameters["validation_size"]:]]
+    predicted_signals = [1 if return_val > 0 else 0 for return_val in best_model_returns]
+    accuracy = accuracy_score(true_signals, predicted_signals)
+    information_ratio = np.mean(best_model_returns) / np.std(best_model_returns) if np.std(best_model_returns) != 0 else 0
+
     logger.info("\x1b[34mBest model is %s with Walk-Forward Validation RMSE of %.3f\x1b[39m", best_model_name,
                 best_score)
-    return best_model
+    return best_model, {
+        "RMSE": best_score.round(5),
+        "Accuracy": accuracy.round(5),
+        "Information Ratio": information_ratio.round(5)
+    }
 
 
-def predict_return(stock_df: pd.DataFrame, best_lags: dict, regressor, sql_variables_table: pd.DataFrame,
-                   parameters: Dict) -> pd.DataFrame:
+def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_lags: dict, regressor,
+                   regressor_validation_scores: dict,
+                   sql_variables_table: pd.DataFrame, parameters: Dict) -> dict:
     """Predicts the return of a stock using the model.
 
     Args:
-        stock_df: Data containing features and target.
+        original_df: Original data containing features and target.
+        processed_df: Processed data containing features and target.
         best_lags: Best lags for each feature.
         regressor: Model to use for prediction.
-        sql_variables_table_ Data containing variables from SQL.
+        regressor_validation_score: Validation score of the model.
+        sql_variables_table: Data containing variables from SQL.
         parameters: Parameters defined in parameters/data_science.yml.
     Returns:
         Predicted returns.
     """
     holidays = sql_variables_table.loc[sql_variables_table["key"] == "Market Holidays", 'value'].values[0].split(",")
     custom_business_day = pd.tseries.offsets.CustomBusinessDay(holidays=holidays)
-    stock_df.index.freq = custom_business_day
+    processed_df.index.freq = custom_business_day
 
     # Concatenate the new row to the stock_df
-    stock_df.loc[stock_df.index[-1] + custom_business_day] = pd.Series(index=stock_df.columns, dtype=stock_df.dtypes.values)
+    processed_df.loc[processed_df.index[-1] + custom_business_day] = pd.Series(index=processed_df.columns,
+                                                                               dtype=processed_df.dtypes.values)
 
     for feature, lags in best_lags.items():
         for lag in lags:
-            stock_df[f"{feature}_lag_{lag}"] = stock_df[feature].shift(lag)
+            processed_df[f"{feature}_lag_{lag}"] = processed_df[feature].shift(lag)
         if feature != parameters["target"]:
-            stock_df.drop(feature, axis=1, inplace=True)
-    stock_df.dropna(subset=stock_df.columns.drop(parameters["target"]),inplace=True)
+            processed_df.drop(feature, axis=1, inplace=True)
+    processed_df.dropna(subset=processed_df.columns.drop(parameters["target"]), inplace=True)
 
-    training_starting_index = len(stock_df) - parameters["training_size"]
-    X = stock_df.drop(parameters["target"], axis=1)
-    y = stock_df[parameters["target"]].values
+    training_starting_index = len(processed_df) - parameters["training_size"]
+    X = processed_df.drop(parameters["target"], axis=1)
+    y = processed_df[parameters["target"]].values
     X_train = X.iloc[training_starting_index: - 1]
     y_train = y[training_starting_index: - 1]
     X_test = X.iloc[[-1]]
 
     regressor.fit(X_train, y_train)
-    y_pred = regressor.predict(X_test)
-    return y_pred[0]
+    y_pred = regressor.predict(X_test)[0]
+
+    predicted_close_price = original_df['close'].iloc[-1] * (1 + y_pred)
+    return {
+        "Date": pd.to_datetime(X_test.index[-1]).strftime("%Y-%m-%d"),
+        "Predicted Return": y_pred,
+        "Predicted Close Price": predicted_close_price.round(2),
+        "Regressor": regressor.__class__.__name__,
+        "Validation Scores": regressor_validation_scores,
+        "Best Lags": best_lags
+    }
