@@ -1,19 +1,18 @@
 import itertools
 import logging
 import math
-from typing import Dict, Tuple
 
-import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import mean_squared_error
 from sklearn.svm import SVR
-from statsmodels.tsa import ar_model
+from statsmodels.tsa.ar_model import AutoReg
+
+from AIStockPicker_MLPipeline.utils import generate_scores_from_returns, available_evaluation_metrics, \
+    minimize_evaluation_metrics, inverse_transform_returns
 
 
 def generate_optimized_lagged_features(stock_df: pd.DataFrame, sql_variables_table: pd.DataFrame,
-                                       parameters: Dict) -> pd.DataFrame:
+                                       parameters: dict) -> tuple:
     """Creates optimized lags for the features.
 
     Args:
@@ -24,9 +23,9 @@ def generate_optimized_lagged_features(stock_df: pd.DataFrame, sql_variables_tab
         Data with optimized lags.
     """
 
-    def _get_best_lags(stock_df: pd.DataFrame, parameters: Dict) -> dict:
+    def _get_best_lags(stock_df: pd.DataFrame, parameters: dict) -> dict:
         """
-        Get the best number of lags for each feature.
+        Using AutoReg to find the best lags for each feature by minimizing the AIC.
         Args:
             stock_df: Stock data.
             parameters: Parameters defined in parameters/data_science.yml.
@@ -36,18 +35,21 @@ def generate_optimized_lagged_features(stock_df: pd.DataFrame, sql_variables_tab
         """
         best_lags = {}
         for feature in stock_df.columns:
-            best_nr_lags = []
-            for i in range(0, parameters["validation_size"]):
-                val_starting_index = len(stock_df) - parameters["validation_size"] + i
-                train_indexes = range(val_starting_index - parameters['training_size'], val_starting_index)
+            val_starting_index = len(stock_df) - parameters["validation_size"]
+            train_indexes = range(val_starting_index - parameters['training_size'], val_starting_index)
 
-                y_train = stock_df[feature].iloc[train_indexes]
+            y_train = stock_df[feature].iloc[train_indexes]
 
-                search = ar_model.ar_select_order(endog=y_train, maxlag=parameters["max_number_lags"], ic="aic")
-                if search is not None and search.ar_lags is not None:
-                    best_nr_lags.extend(search.ar_lags)
+            min_aic = float('inf')
+            best_lag = 1
+            for lag in range(1, parameters["max_number_lags"] + 1):
+                aic = AutoReg(y_train, lags=lag).fit().aic
+                # TODO VALIDAR none aic
+                if aic is not None and aic < min_aic:
+                    min_aic = aic
+                    best_lag = lag
 
-            best_lags[feature] = list(set(best_nr_lags))
+            best_lags[feature] = list(range(1, best_lag + 1))
 
         return best_lags
 
@@ -65,7 +67,7 @@ def generate_optimized_lagged_features(stock_df: pd.DataFrame, sql_variables_tab
     return stock_df.dropna(), best_lags
 
 
-def split_data(stock_df: pd.DataFrame, parameters: dict) -> Tuple:
+def split_data(stock_df: pd.DataFrame, parameters: dict) -> tuple:
     """Splits data into features and targets training and test sets.
 
     Args:
@@ -80,7 +82,7 @@ def split_data(stock_df: pd.DataFrame, parameters: dict) -> Tuple:
     return X, y
 
 
-def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
+def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> tuple:
     """Performs grid search to find the best model with the best parameters.
 
     Args:
@@ -91,54 +93,17 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
         Best model
     """
 
-    def _get_best_svm_regressor(X: pd.DataFrame, y, parameters_model: Dict, parameters: Dict) -> Tuple:
-        param_combinations = itertools.product(parameters_model["kernel"],
-                                               parameters_model["C"],
-                                               parameters_model["degree"],
-                                               parameters_model["gamma"])
-
-        best_regressor: SVR
-        best_rmse = math.inf
-        best_regressor_returns = []
-        for kernel, C, degree, gamma in param_combinations:
-            returns = []
-            rmse = []
-            for i in range(0, parameters["validation_size"]):
-                val_starting_index = len(X) - parameters["validation_size"] + i
-                train_indexes = range(val_starting_index - parameters['training_size'], val_starting_index)
-
-                X_train = X.iloc[train_indexes]
-                y_train = y[train_indexes]
-                X_val = X.iloc[[val_starting_index]]
-                y_val = y[val_starting_index]
-
-                # Train the model
-                regressor = SVR(kernel=kernel, C=C, degree=degree, gamma=gamma)
-                regressor.fit(X_train, y_train)
-
-                # Evaluate the model
-                y_pred = regressor.predict(X_val)
-                rmse_score = np.sqrt(mean_squared_error([y_val], [y_pred]))
-                rmse.append(rmse_score)
-
-                returns.append(y_pred[0])
-
-            if np.mean(rmse) < best_rmse:
-                best_rmse = np.mean(rmse)
-                best_regressor = regressor
-                best_regressor_returns = returns
-
-        return best_regressor, best_regressor_returns, best_rmse
-
-    def _get_best_linear_regressor(X: pd.DataFrame, y, parameters_model: Dict, parameters: Dict) -> Tuple:
+    def _get_best_linear_regressor(X: pd.DataFrame, y, parameters_model: dict, parameters: dict) -> tuple:
 
         param_combinations = itertools.product(parameters_model["fit_intercept"], parameters_model["positive"])
         best_regressor: LinearRegression
-        best_rmse = math.inf
+        best_optimize_score = math.inf if parameters[
+                                              "evaluation_metric"] in minimize_evaluation_metrics() else -math.inf
+        best_all_scores = {}
         best_regressor_returns = []
         for fit_intercept, positive in param_combinations:
-            returns = []
-            rmse = []
+            true_returns = []
+            predicted_returns = []
             for i in range(0, parameters["validation_size"]):
                 val_starting_index = len(X) - parameters["validation_size"] + i
                 train_indexes = range(val_starting_index - parameters['training_size'], val_starting_index)
@@ -155,59 +120,126 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
 
                 # Evaluate the model
                 y_pred = regressor.predict(X_val)
-                rmse_score = np.sqrt(mean_squared_error([y_val], [y_pred]))
-                rmse.append(rmse_score)
 
-                returns.append(y_pred[0])
+                true_returns.append(y_val)
+                predicted_returns.append(y_pred[0])
 
-            if np.mean(rmse) < best_rmse:
-                best_regressor = regressor
-                best_rmse = np.mean(rmse)
-                best_regressor_returns = returns
+            all_scores = generate_scores_from_returns(true_returns, predicted_returns, scaler_object)
 
-        return best_regressor, best_regressor_returns, best_rmse
+            if parameters["evaluation_metric"] in minimize_evaluation_metrics():
+                if all_scores[parameters["evaluation_metric"]] < best_optimize_score:
+                    best_regressor = regressor
+                    best_optimize_score = all_scores[parameters["evaluation_metric"]]
+                    best_all_scores = all_scores
+                    best_regressor_returns = predicted_returns
+            else:
+                if all_scores[parameters["evaluation_metric"]] > best_optimize_score:
+                    best_regressor = regressor
+                    best_optimize_score = all_scores[parameters["evaluation_metric"]]
+                    best_all_scores = all_scores
+                    best_regressor_returns = predicted_returns
 
-    def _get_best_lstm_regressor(X: pd.DataFrame, y, parameters_model: Dict, parameters: Dict) -> Tuple:
+        logger.info("Best Linear Regressor with Walk-Forward Validation %s of %.3f",
+                    available_evaluation_metrics()[parameters["evaluation_metric"]], best_optimize_score)
+        return best_regressor, best_regressor_returns, best_optimize_score, best_all_scores
 
-        num_rows_validation = int(len(X) * parameters["validation_size"])
-        # do walk forward validation
-        train_size = len(X) - num_rows_validation
+    def _get_best_svm_regressor(X: pd.DataFrame, y, parameters_model: dict, parameters: dict) -> tuple:
+        param_combinations = itertools.product(parameters_model["kernel"],
+                                               parameters_model["C"],
+                                               parameters_model["degree"],
+                                               parameters_model["gamma"])
 
         best_regressor: SVR
-        best_rmse = math.inf
+        best_optimize_score = math.inf if parameters[
+                                              "evaluation_metric"] in minimize_evaluation_metrics() else -math.inf
+        best_all_scores = {}
+        best_regressor_returns = []
+        for kernel, C, degree, gamma in param_combinations:
+            true_returns = []
+            predicted_returns = []
+            for i in range(0, parameters["validation_size"]):
+                val_starting_index = len(X) - parameters["validation_size"] + i
+                train_indexes = range(val_starting_index - parameters['training_size'], val_starting_index)
+
+                X_train = X.iloc[train_indexes]
+                y_train = y[train_indexes]
+                X_val = X.iloc[[val_starting_index]]
+                y_val = y[val_starting_index]
+
+                # Train the model
+                regressor = SVR(kernel=kernel, C=C, degree=degree, gamma=gamma)
+                regressor.fit(X_train, y_train)
+                y_pred = regressor.predict(X_val)
+
+                true_returns.append(y_val)
+                predicted_returns.append(y_pred[0])
+
+            all_scores = generate_scores_from_returns(true_returns, predicted_returns, scaler_object)
+
+            if parameters["evaluation_metric"] in minimize_evaluation_metrics():
+                if all_scores[parameters["evaluation_metric"]] < best_optimize_score:
+                    best_regressor = regressor
+                    best_optimize_score = all_scores[parameters["evaluation_metric"]]
+                    best_all_scores = all_scores
+                    best_regressor_returns = predicted_returns
+            else:
+                if all_scores[parameters["evaluation_metric"]] > best_optimize_score:
+                    best_regressor = regressor
+                    best_optimize_score = all_scores[parameters["evaluation_metric"]]
+                    best_all_scores = all_scores
+                    best_regressor_returns = predicted_returns
+
+        logger.info("Best SVM regressor with Walk-Forward Validation %s of %.3f",
+                    available_evaluation_metrics()[parameters["evaluation_metric"]], best_optimize_score)
+        return best_regressor, best_regressor_returns, best_optimize_score, best_all_scores
 
     logger = logging.getLogger(__name__)
-    models = ["linear_regression"]
+    models = ["linear_regression", "svm"]
 
-    best_score = math.inf
     best_model = None
-    best_model_returns = []
     best_model_name = "None"
+    best_optimize_score = math.inf if parameters["evaluation_metric"] in minimize_evaluation_metrics() else -math.inf
+    best_all_scores = {}
     for model in models:
         if model == "linear_regression":
             parameters_linear_regression = {
                 "fit_intercept": [True, False],
                 "positive": [False, True]
             }
-            model, returns, score = _get_best_linear_regressor(X, y, parameters_linear_regression, parameters)
-            if score < best_score:
-                best_model = model
-                best_model_returns = returns
-                best_score = score
-                best_model_name = model.__class__.__name__
+            model, returns, optimize_score, all_scores = _get_best_linear_regressor(X, y, parameters_linear_regression,
+                                                                                    parameters)
+            if parameters["evaluation_metric"] in minimize_evaluation_metrics():
+                if optimize_score < best_optimize_score:
+                    best_model = model
+                    best_model_name = model.__class__.__name__
+                    best_optimize_score = optimize_score
+                    best_all_scores = all_scores
+            else:
+                if optimize_score > best_optimize_score:
+                    best_model = model
+                    best_model_name = model.__class__.__name__
+                    best_optimize_score = optimize_score
+                    best_all_scores = all_scores
         elif model == "svm":
             parameters_svm = {
                 "kernel": ["linear", "poly", "rbf"],
-                "C": [1, 10, 100],
+                "C": [0.1, 1, 10],
                 "degree": [3, 4, 5],
                 "gamma": ["scale", "auto"]
             }
-            model, returns, score = _get_best_svm_regressor(X, y, parameters_svm, parameters)
-            if score < best_score:
-                best_model = model
-                best_model_returns = returns
-                best_score = score
-                best_model_name = model.__class__.__name__
+            model, returns, optimize_score, all_scores = _get_best_svm_regressor(X, y, parameters_svm, parameters)
+            if parameters["evaluation_metric"] in minimize_evaluation_metrics():
+                if optimize_score < best_optimize_score:
+                    best_model = model
+                    best_model_name = model.__class__.__name__
+                    best_optimize_score = optimize_score
+                    best_all_scores = all_scores
+            else:
+                if optimize_score > best_optimize_score:
+                    best_model = model
+                    best_model_name = model.__class__.__name__
+                    best_optimize_score = optimize_score
+                    best_all_scores = all_scores
         elif model == "lstm":
             parameters_lstm = {
                 "n_hidden": [1, 2, 3],
@@ -217,30 +249,23 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: Dict) -> Tuple:
             }
             """ 
             model, returns, score = __get_best_lstm_regressor(X,y, parameters_lstm, parameters)
-            if score < best_score:
+            if score < best_optimize_score:
                 best_model = model
                 best_model_returns = returns
-                best_score = score
+                best_optimize_score = score
                 best_model_name = "Long Short-Term Memory Regressor"
             """
 
-    true_signals = [1 if return_val > 0 else 0 for return_val in y[-parameters["validation_size"]:]]
-    predicted_signals = [1 if return_val > 0 else 0 for return_val in best_model_returns]
-    accuracy = accuracy_score(true_signals, predicted_signals)
-    information_ratio = np.mean(best_model_returns) / np.std(best_model_returns) if np.std(best_model_returns) != 0 else 0
+    logger.info("\x1b[34mBest model is %s with Walk-Forward Validation %s of %.3f\x1b[39m", best_model_name,
+                available_evaluation_metrics()[parameters["evaluation_metric"]], best_optimize_score)
 
-    logger.info("\x1b[34mBest model is %s with Walk-Forward Validation RMSE of %.3f\x1b[39m", best_model_name,
-                best_score)
-    return best_model, {
-        "RMSE": best_score.round(5),
-        "Accuracy": accuracy.round(5),
-        "Information Ratio": information_ratio.round(5)
-    }
+    best_all_scores = {available_evaluation_metrics()[key]: value for key, value in best_all_scores.items()}
+    return best_model, best_all_scores
 
 
 def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_lags: dict, regressor,
-                   regressor_validation_scores: dict,
-                   sql_variables_table: pd.DataFrame, parameters: Dict) -> dict:
+                   regressor_validation_scores: dict, sql_variables_table: pd.DataFrame, parameters: dict,
+                   scaler_object) -> dict:
     """Predicts the return of a stock using the model.
 
     Args:
@@ -251,6 +276,7 @@ def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_l
         regressor_validation_score: Validation score of the model.
         sql_variables_table: Data containing variables from SQL.
         parameters: Parameters defined in parameters/data_science.yml.
+        scaler_object: Scaler object to inverse transform the data.
     Returns:
         Predicted returns.
     """
@@ -279,12 +305,17 @@ def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_l
     regressor.fit(X_train, y_train)
     y_pred = regressor.predict(X_test)[0]
 
-    predicted_close_price = original_df['close'].iloc[-1] * (1 + y_pred)
+    predicted_return = inverse_transform_returns(true_returns=None, predicted_returns=y_pred,
+                                                 scaler_object=scaler_object)[0]
+
+    predicted_close_price = original_df['close'].iloc[-1] * (1 + predicted_return)
     return {
         "Date": pd.to_datetime(X_test.index[-1]).strftime("%Y-%m-%d"),
-        "Predicted Return": y_pred,
+        "Metric Optimized": available_evaluation_metrics()[parameters["evaluation_metric"]],
+        "Predicted Return": predicted_return,
         "Predicted Close Price": predicted_close_price.round(2),
         "Regressor": regressor.__class__.__name__,
         "Validation Scores": regressor_validation_scores,
-        "Best Lags": best_lags
+        "Used Lags": best_lags,
+        "Used Features": list(set([column.split("_lag")[0] for column in X.columns]))
     }

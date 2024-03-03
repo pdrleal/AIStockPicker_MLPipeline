@@ -5,6 +5,8 @@ from flask import Flask, request
 from kedro.framework.session import KedroSession
 from kedro.framework.startup import bootstrap_project
 
+from AIStockPicker_MLPipeline.utils import available_evaluation_metrics
+
 
 def create_new_kedro_session(
         extra_params: Dict[str, Any] = None, env: str = None
@@ -25,9 +27,15 @@ app = Flask(__name__)
 @app.route('/forecast')
 def forecast():
     stock_index = request.args.get('stock_index')
+    evaluation_metric = request.args.get('evaluation_metric')
     if stock_index is None:
         return "Missing 'stock_index' parameter", 400
-    new_session = create_new_kedro_session(extra_params={"stock_index": stock_index})
+    if evaluation_metric is None:
+        evaluation_metric = "information_ratio"
+    elif evaluation_metric not in available_evaluation_metrics().keys():
+        return f"Invalid 'evaluation_metric' parameter. Available options are: {', '.join(available_evaluation_metrics().keys())}", 400
+    new_session = create_new_kedro_session(
+        extra_params={"stock_index": stock_index, "modelling": {"evaluation_metric": evaluation_metric}})
     return new_session.run()
 
 

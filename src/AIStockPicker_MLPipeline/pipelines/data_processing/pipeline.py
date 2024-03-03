@@ -26,13 +26,13 @@ def create_pipeline(**kwargs) -> Pipeline:
             ),
             node(
                 func=compute_simple_moving_averages,
-                inputs=["percentage_returns"],
+                inputs=["percentage_returns", "params:modelling"],
                 outputs="simple_moving_averages",
                 name="compute_simple_moving_average",
             ),
             node(
                 func=compute_relative_strength_indexes,
-                inputs=["percentage_returns"],
+                inputs=["percentage_returns", "params:modelling"],
                 outputs="relative_strength_indexes",
                 name="compute_relative_strength_index",
             ),
@@ -52,7 +52,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             node(
                 func=scale_data,
                 inputs=["stock_table_feature_selection"],
-                outputs="stock_table_processed",
+                outputs=["stock_table_processed", "scaler_object"],
                 name="scale_data"
             ),
 
