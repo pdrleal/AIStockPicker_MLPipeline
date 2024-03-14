@@ -153,8 +153,19 @@ def merge_dataframes(*df_list) -> pd.DataFrame:
     return stock_df
 
 
-def perform_feature_selection(stock_df) -> pd.DataFrame:
-    return stock_df[['return', 'news_sentiment', 'social_sentiment', 'sma_signals', 'rsi_signals']]
+def perform_feature_selection(stock_df, include_sentiments: str) -> pd.DataFrame:
+    if include_sentiments == 'no':
+        return stock_df[['return', 'sma_signals', 'rsi_signals']]
+    elif include_sentiments == 'yes':
+        return stock_df[['return', 'news_sentiment', 'social_sentiment', 'sma_signals', 'rsi_signals']]
+    elif include_sentiments == 'news':
+        return stock_df[['return', 'news_sentiment', 'sma_signals', 'rsi_signals']]
+    elif include_sentiments == 'social':
+        return stock_df[['return', 'social_sentiment', 'sma_signals', 'rsi_signals']]
+    else:
+        raise ValueError("Invalid value for 'include_sentiments' parameter. "
+                         "Valid values are 'yes', 'no', 'news' or 'social'.")
+
 
 
 def scale_data(stock_df) -> pd.DataFrame:

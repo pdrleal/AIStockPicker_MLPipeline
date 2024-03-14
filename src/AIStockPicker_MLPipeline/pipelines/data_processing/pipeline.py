@@ -45,7 +45,7 @@ def create_pipeline(**kwargs) -> Pipeline:
 
             node(
                 func=perform_feature_selection,
-                inputs=["stock_table_feature_engineering"],
+                inputs=["stock_table_feature_engineering", "params:include_sentiments"],
                 outputs="stock_table_feature_selection",
                 name="perform_feature_selection"
             ),

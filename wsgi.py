@@ -28,14 +28,24 @@ app = Flask(__name__)
 def forecast():
     stock_index = request.args.get('stock_index')
     evaluation_metric = request.args.get('evaluation_metric')
+    include_sentiments = request.args.get('include_sentiments')
     if stock_index is None:
         return "Missing 'stock_index' parameter", 400
+
+    if include_sentiments is None:
+        include_sentiments = "yes"
+    elif include_sentiments not in ["yes", "no", "news", "social"]:
+        return "Invalid 'include_sentiments' parameter. Available options are: 'yes', 'no', 'news', 'social'.", 400
+
     if evaluation_metric is None:
         evaluation_metric = "information_ratio"
     elif evaluation_metric not in available_evaluation_metrics().keys():
-        return f"Invalid 'evaluation_metric' parameter. Available options are: {', '.join(available_evaluation_metrics().keys())}", 400
+        return f"Invalid 'evaluation_metric' parameter. Available options are: {', '.join(available_evaluation_metrics().keys())}.", 400
+
     new_session = create_new_kedro_session(
-        extra_params={"stock_index": stock_index, "modelling": {"evaluation_metric": evaluation_metric}})
+        extra_params={"stock_index": stock_index,
+                      "include_sentiments": include_sentiments,
+                      "modelling": {"evaluation_metric": evaluation_metric}})
     return new_session.run()
 
 

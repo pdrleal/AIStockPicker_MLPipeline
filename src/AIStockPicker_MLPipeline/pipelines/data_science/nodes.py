@@ -194,7 +194,7 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> 
         return best_regressor, best_regressor_returns, best_optimize_score, best_all_scores
 
     logger = logging.getLogger(__name__)
-    models = ["linear_regression", "svm"]
+    models = ["linear_regression"]
 
     best_model = None
     best_model_name = "None"
@@ -265,7 +265,7 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> 
 
 def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_lags: dict, regressor,
                    regressor_validation_scores: dict, sql_variables_table: pd.DataFrame, parameters: dict,
-                   scaler_object) -> dict:
+                   scaler_object, stock_index) -> dict:
     """Predicts the return of a stock using the model.
 
     Args:
@@ -310,6 +310,7 @@ def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_l
 
     predicted_close_price = original_df['close'].iloc[-1] * (1 + predicted_return)
     return {
+        "Company": stock_index,
         "Date": pd.to_datetime(X_test.index[-1]).strftime("%Y-%m-%d"),
         "Metric Optimized": available_evaluation_metrics()[parameters["evaluation_metric"]],
         "Predicted Return": predicted_return,

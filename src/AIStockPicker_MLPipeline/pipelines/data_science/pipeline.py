@@ -27,7 +27,8 @@ def create_pipeline(**kwargs) -> Pipeline:
             node(
                 func=predict_return,
                 inputs=["clean_stock_table", "stock_table_processed", "best_lags", "regressor",
-                        "regressor_validation_scores", "sql_variables_table", "params:modelling", "scaler_object"],
+                        "regressor_validation_scores", "sql_variables_table", "params:modelling",
+                        "scaler_object", "params:stock_index"],
                 outputs='prediction_details',
                 name="predict_return",
             )

@@ -1,5 +1,6 @@
 stock_index: null
 time_frequency: 1d
+include_sentiments: null
 modelling:
   evaluation_metric: null
   target: "return"
