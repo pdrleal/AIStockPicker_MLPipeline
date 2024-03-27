@@ -85,25 +85,19 @@ def available_evaluation_metrics() -> dict:
     return metrics
 
 
-def inverse_transform_returns(true_returns, predicted_returns, scaler_object):
+def inverse_transform_returns(returns, scaler_object):
     """
     Inverse transform the true and predicted returns.
 
     Arguments:
         scaler_object: Scaler object
-        true_returns: True returns
-        predicted_returns: Predicted returns
+        returns: Scaled Returns
+
     """
     # scale back the returns
     inverse_scaler_object = MinMaxScaler()
     inverse_scaler_object.min_, inverse_scaler_object.scale_ = scaler_object.min_[0], scaler_object.scale_[0]
-
-    if true_returns is None:
-        return inverse_scaler_object.inverse_transform(np.array(predicted_returns).reshape(-1, 1)).flatten()
-
-    true_returns = inverse_scaler_object.inverse_transform(np.array(true_returns).reshape(-1, 1)).flatten()
-    predicted_returns = inverse_scaler_object.inverse_transform(np.array(predicted_returns).reshape(-1, 1)).flatten()
-    return true_returns, predicted_returns
+    return inverse_scaler_object.inverse_transform(np.array(returns).reshape(-1, 1)).flatten()
 
 
 def generate_scores_from_returns(true_returns, predicted_returns, scaler_object) -> dict:
@@ -119,13 +113,13 @@ def generate_scores_from_returns(true_returns, predicted_returns, scaler_object)
         scores: Dictionary with scores for the specified metrics
     """
     # scale back the returns
-    true_returns, predicted_returns = inverse_transform_returns(true_returns=true_returns,
-                                                                predicted_returns=predicted_returns,
-                                                                scaler_object=scaler_object)
+    true_returns = inverse_transform_returns(returns=true_returns, scaler_object=scaler_object)
+    predicted_returns = inverse_transform_returns(returns=predicted_returns, scaler_object=scaler_object)
 
     true_labels = [1 if val > 0 else 0 for val in true_returns]
     predicted_labels = [1 if val > 0 else 0 for val in predicted_returns]
 
+    strategy_returns = np.array(true_returns) * np.array(predicted_labels)
     scores = {}
     available_metrics = available_evaluation_metrics()
     for metric in available_metrics:
@@ -136,8 +130,8 @@ def generate_scores_from_returns(true_returns, predicted_returns, scaler_object)
         elif metric == 'r2_score':
             scores[metric] = r2_score(true_returns, predicted_returns)
         elif metric == 'information_ratio':
-            scores[metric] = (np.mean(predicted_returns) / np.std(predicted_returns)) if np.std(
-                predicted_returns) != 0 else 0
+            scores[metric] = (np.mean(strategy_returns) / np.std(strategy_returns)) if np.std(
+                strategy_returns) != 0 else 0
         elif metric == 'accuracy':
             scores[metric] = accuracy_score(true_labels, predicted_labels)
         elif metric == 'precision':

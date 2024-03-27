@@ -3,6 +3,7 @@ import logging
 import math
 
 import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
 from statsmodels.tsa.ar_model import AutoReg
@@ -77,12 +78,12 @@ def split_data(stock_df: pd.DataFrame, parameters: dict) -> tuple:
         Split data.
     """
     X = stock_df.drop([parameters["target"]], axis=1)
-    y = stock_df[parameters["target"]].values
+    y = stock_df[parameters["target"]]
 
     return X, y
 
 
-def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> tuple:
+def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object, stock_index) -> tuple:
     """Performs grid search to find the best model with the best parameters.
 
     Args:
@@ -143,6 +144,55 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> 
                     available_evaluation_metrics()[parameters["evaluation_metric"]], best_optimize_score)
         return best_regressor, best_regressor_returns, best_optimize_score, best_all_scores
 
+    def _get_best_random_forest_regressor(X: pd.DataFrame, y, parameters_model: dict, parameters: dict) -> tuple:
+
+        param_combinations = itertools.product(parameters_model["fit_intercept"], parameters_model["positive"])
+        best_regressor: RandomForestRegressor
+        best_optimize_score = math.inf if parameters[
+                                              "evaluation_metric"] in minimize_evaluation_metrics() else -math.inf
+        best_all_scores = {}
+        best_regressor_returns = []
+        for fit_intercept, positive in param_combinations:
+            true_returns = []
+            predicted_returns = []
+            for i in range(0, parameters["validation_size"]):
+                val_starting_index = len(X) - parameters["validation_size"] + i
+                train_indexes = range(val_starting_index - parameters['training_size'], val_starting_index)
+
+                X_train = X.iloc[train_indexes]
+                y_train = y[train_indexes]
+                X_val = X.iloc[[val_starting_index]]
+                y_val = y[val_starting_index]
+
+                # Train the model
+                regressor = RandomForestRegressor(n_jobs=-1, n_estimators=35, max_depth=3)
+                regressor.fit(X_train, y_train)
+
+                # Evaluate the model
+                y_pred = regressor.predict(X_val)
+
+                true_returns.append(y_val)
+                predicted_returns.append(y_pred[0])
+
+            all_scores = generate_scores_from_returns(true_returns, predicted_returns, scaler_object)
+
+            if parameters["evaluation_metric"] in minimize_evaluation_metrics():
+                if all_scores[parameters["evaluation_metric"]] < best_optimize_score:
+                    best_regressor = regressor
+                    best_optimize_score = all_scores[parameters["evaluation_metric"]]
+                    best_all_scores = all_scores
+                    best_regressor_returns = predicted_returns
+            else:
+                if all_scores[parameters["evaluation_metric"]] > best_optimize_score:
+                    best_regressor = regressor
+                    best_optimize_score = all_scores[parameters["evaluation_metric"]]
+                    best_all_scores = all_scores
+                    best_regressor_returns = predicted_returns
+
+        logger.info("Best Random Forest Regressor with Walk-Forward Validation %s of %.3f",
+                    available_evaluation_metrics()[parameters["evaluation_metric"]], best_optimize_score)
+        return best_regressor, best_regressor_returns, best_optimize_score, best_all_scores
+
     def _get_best_svm_regressor(X: pd.DataFrame, y, parameters_model: dict, parameters: dict) -> tuple:
         param_combinations = itertools.product(parameters_model["kernel"],
                                                parameters_model["C"],
@@ -195,16 +245,18 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> 
 
     logger = logging.getLogger(__name__)
     models = ["linear_regression"]
+    # models = ["random_forest"]
 
     best_model = None
     best_model_name = "None"
     best_optimize_score = math.inf if parameters["evaluation_metric"] in minimize_evaluation_metrics() else -math.inf
     best_all_scores = {}
+    best_validation_returns = []
     for model in models:
         if model == "linear_regression":
             parameters_linear_regression = {
-                "fit_intercept": [True, False],
-                "positive": [False, True]
+                "fit_intercept": [True],
+                "positive": [False]
             }
             model, returns, optimize_score, all_scores = _get_best_linear_regressor(X, y, parameters_linear_regression,
                                                                                     parameters)
@@ -214,12 +266,35 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> 
                     best_model_name = model.__class__.__name__
                     best_optimize_score = optimize_score
                     best_all_scores = all_scores
+                    best_validation_returns = returns
             else:
                 if optimize_score > best_optimize_score:
                     best_model = model
                     best_model_name = model.__class__.__name__
                     best_optimize_score = optimize_score
                     best_all_scores = all_scores
+                    best_validation_returns = returns
+        elif model == "random_forest":
+            parameters_random_forest_regression = {
+                "fit_intercept": [True],
+                "positive": [False]
+            }
+            model, returns, optimize_score, all_scores = _get_best_random_forest_regressor(X, y, parameters_random_forest_regression,
+                                                                                    parameters)
+            if parameters["evaluation_metric"] in minimize_evaluation_metrics():
+                if optimize_score < best_optimize_score:
+                    best_model = model
+                    best_model_name = model.__class__.__name__
+                    best_optimize_score = optimize_score
+                    best_all_scores = all_scores
+                    best_validation_returns = returns
+            else:
+                if optimize_score > best_optimize_score:
+                    best_model = model
+                    best_model_name = model.__class__.__name__
+                    best_optimize_score = optimize_score
+                    best_all_scores = all_scores
+                    best_validation_returns = returns
         elif model == "svm":
             parameters_svm = {
                 "kernel": ["linear", "poly", "rbf"],
@@ -234,12 +309,14 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> 
                     best_model_name = model.__class__.__name__
                     best_optimize_score = optimize_score
                     best_all_scores = all_scores
+                    best_validation_returns = returns
             else:
                 if optimize_score > best_optimize_score:
                     best_model = model
                     best_model_name = model.__class__.__name__
                     best_optimize_score = optimize_score
                     best_all_scores = all_scores
+                    best_validation_returns = returns
         elif model == "lstm":
             parameters_lstm = {
                 "n_hidden": [1, 2, 3],
@@ -260,6 +337,11 @@ def perform_grid_search(X: pd.DataFrame, y, parameters: dict, scaler_object) -> 
                 available_evaluation_metrics()[parameters["evaluation_metric"]], best_optimize_score)
 
     best_all_scores = {available_evaluation_metrics()[key]: value for key, value in best_all_scores.items()}
+
+    # to save returns in an excel file
+    unscaled_returns = inverse_transform_returns(returns=best_validation_returns, scaler_object=scaler_object)
+    returns_df = pd.DataFrame(unscaled_returns, columns=["Returns"], index=X.index[-parameters["validation_size"]:])
+    returns_df.to_csv("returns_"+stock_index+".csv",sep=";")
     return best_model, best_all_scores
 
 
@@ -273,7 +355,7 @@ def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_l
         processed_df: Processed data containing features and target.
         best_lags: Best lags for each feature.
         regressor: Model to use for prediction.
-        regressor_validation_score: Validation score of the model.
+        regressor_validation_scores: Validation score of the model.
         sql_variables_table: Data containing variables from SQL.
         parameters: Parameters defined in parameters/data_science.yml.
         scaler_object: Scaler object to inverse transform the data.
@@ -305,8 +387,7 @@ def predict_return(original_df: pd.DataFrame, processed_df: pd.DataFrame, best_l
     regressor.fit(X_train, y_train)
     y_pred = regressor.predict(X_test)[0]
 
-    predicted_return = inverse_transform_returns(true_returns=None, predicted_returns=y_pred,
-                                                 scaler_object=scaler_object)[0]
+    predicted_return = inverse_transform_returns(returns=y_pred,scaler_object=scaler_object)[0]
 
     predicted_close_price = original_df['close'].iloc[-1] * (1 + predicted_return)
     return {

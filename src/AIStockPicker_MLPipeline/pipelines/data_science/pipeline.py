@@ -20,7 +20,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             ),
             node(
                 func=perform_grid_search,
-                inputs=["X", "y", "params:modelling", "scaler_object"],
+                inputs=["X", "y", "params:modelling", "scaler_object","params:stock_index"],
                 outputs=["regressor", "regressor_validation_scores"],
                 name="perform_grid_search",
             ),

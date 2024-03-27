@@ -1,8 +1,10 @@
 import logging
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
+from pandas import DataFrame
 from sklearn.preprocessing import MinMaxScaler
 
 logger = logging.getLogger(__name__)
@@ -168,9 +170,15 @@ def perform_feature_selection(stock_df, include_sentiments: str) -> pd.DataFrame
 
 
 
-def scale_data(stock_df) -> pd.DataFrame:
+def scale_data(stock_df, parameters) -> tuple:
     logger.info("Scaling numerical features...")
+
+    val_starting_index = len(stock_df) - parameters["validation_size"]
+    train_indexes = range(val_starting_index - parameters['training_size'], val_starting_index)
+
+    stock_df_train = stock_df.iloc[train_indexes].copy()
     # use sklearn min max scaler
     scaler_object = MinMaxScaler(feature_range=(-1, 1))
-    stock_df = pd.DataFrame(scaler_object.fit_transform(stock_df),index=stock_df.index, columns=stock_df.columns)
+    scaler_object.fit(stock_df_train)
+    stock_df = pd.DataFrame(scaler_object.transform(stock_df), index=stock_df.index, columns=stock_df.columns)
     return stock_df, scaler_object
